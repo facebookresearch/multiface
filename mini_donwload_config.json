@@ -1,0 +1,13 @@
+{
+    "entity": ["6795937"],
+    "image": true,
+    "mesh": true,
+    "texture": true,
+    "metadata": true,
+    "audio": true,
+    "expression":
+    [
+        "E057_Cheeks_Puffed",
+        "E061_Lips_Puffed"
+    ]
+}
