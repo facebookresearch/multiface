@@ -1,6 +1,6 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # All rights reserved.
-# 
+#
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
@@ -13,14 +13,20 @@ import os
 import requests
 from bs4 import BeautifulSoup
 
+MAX_TRY = 50
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("Dataset Download")
 
 
 def worker(path):
     if path[-4:] == ".tar":
-        while True:
-            os.system("tar -xvf %s -C %s && touch %s.unzip" % (path, "/".join(path.split("/")[:-1]), path))
+        try_count = 0
+        while True and (try_count < MAX_TRY):
+            try_count = try_count + 1
+            os.system(
+                "tar -xvf %s -C %s && touch %s.unzip"
+                % (path, "/".join(path.split("/")[:-1]), path)
+            )
             if os.path.isfile("%s.unzip" % (path)):
                 os.system("rm " + path)
                 break
@@ -28,6 +34,7 @@ def worker(path):
                 logging.info("Unzipped %s failed. Re-unzipping..." % (path))
 
         logging.info("Done %s" % (path))
+
 
 def unzip(unzip_tar):
     """create pool to extract all"""
@@ -52,7 +59,9 @@ def checksum(tar_files, file_root, entity, checksum_file):
             file = open(tar_file)
         except Exception as e:
             logging.info("File %s not found! Recheck downloading process!" % (tar_file))
-        while True:
+        try_count = 0
+        while True and (try_count < MAX_TRY):
+            try_count = try_count + 1
             cmd = "md5sum %s " % (tar_file)
             os.system("%s > tmp" % (cmd))
             if open("tmp", "r").read().split(" ")[0] != str(code):
@@ -62,7 +71,7 @@ def checksum(tar_files, file_root, entity, checksum_file):
             else:
                 os.system("touch %s.checksum" % (tar_file))
             os.remove("tmp")
-            if os.path.isfile("touch %s.checksum" % (tar_file)):
+            if os.path.isfile("%s.checksum" % (tar_file)):
                 logging.info("File %s PASS checksum!" % (tar_file))
                 break
     return excluded_tar_files
@@ -121,8 +130,9 @@ def download_tar(
                 continue
 
             file_path = os.path.join(download_dest, entity + file_name)
-
-            while True:
+            try_count = 0
+            while True and (try_count < MAX_TRY):
+                try_count = try_count + 1
                 cmd = "wget -O %s %s && touch %s.download" % (
                     file_path,
                     link.get("href"),
