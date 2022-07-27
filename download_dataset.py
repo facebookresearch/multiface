@@ -118,7 +118,7 @@ def download_tar(
                 continue
 
             included_file = False
-            if file_name in misc:
+            if file_name in misc or "metadata" in file_name or "audio" in file_name:
                 included_file = True
             else:
                 for exp in expression:
