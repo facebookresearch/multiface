@@ -39,11 +39,11 @@ The `download_config` argument points to the configuration file specifying asset
 | Variable        | Type          | Default  |
 | ------------- |:-------------:| -----|
 | entity     | list of string | All the entity will be downloaded |
-| image      | boolean        | Raw images of enities selected will be downloaded|
-| mesh       | boolean        | Tracked mesh of enities selected will be downloaded |
-| texture    | boolean        | Unwrapped texture of enities selected will be downloaded |
-| metadata   | boolean        | Metadata of enities selected will be downloaded |
-| audio      | boolean        | Audio of enities selected will be downloaded |
+| image      | boolean        | Raw images of entities selected will be downloaded|
+| mesh       | boolean        | Tracked mesh of entities selected will be downloaded |
+| texture    | boolean        | Unwrapped texture of entities selected will be downloaded |
+| metadata   | boolean        | Metadata of entities selected will be downloaded |
+| audio      | boolean        | Audio of entities selected will be downloaded |
 | expression  |list of string | All the facial expression (contains both v1 and v2 scripts) will be downloaded  |
 
 The configuration to download all assets can be found at `download_config.json`. 
