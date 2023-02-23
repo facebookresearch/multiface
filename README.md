@@ -30,7 +30,7 @@ cd multiface
 pip3 install -r requirements.txt
 ```
 
-Since the full dataset takes terabytes of storage, one may wish to download partially. If you want to view the example assets, you may download the mini-dataset (< 1 GB)
+Since the full dataset takes terabytes of storage, one may wish to download partially. If you want to view the example assets, you may download the mini-dataset (16.2 GB)
 ```
 python3 download_dataset.py --dest "/path/to/mini_dataset/" --download_config "./mini_download_config.json"
 ```
