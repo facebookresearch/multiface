@@ -54,13 +54,13 @@ def main(args, camera_config, test_segment):
         print('#visual samples', len(dataset_visual))
         # writer = SummaryWriter(log_dir=args.result_path)
 
-    n_cams = len(dataset_train.cameras) + len(dataset_test.cameras)
+    n_cams = len(set(dataset_train.cameras).union(set(dataset_test.cameras)))
     if args.arch == 'base':
         model = DeepAppearanceVAE(args.tex_size, args.mesh_inp_size, n_latent=args.nlatent, n_cams=n_cams).to(device)
     elif args.arch == 'res':
         model = DeepAppearanceVAE(args.tex_size, args.mesh_inp_size, n_latent=args.nlatent, res=True, n_cams=n_cams).to(device)
     elif args.arch == 'warp':
-        model = WarpFieldVAE(args.tex_size, args.mesh_inp_size, z_dim=args.nlatent, n_cams=n_cams).to(device)
+        model = WarpFieldVAE(args.tex_size, args.mesh_inp_size, z_dim=args.nlatent, n_cameras=n_cams).to(device)
     elif args.arch == 'non':
         model = DeepAppearanceVAE(args.tex_size, args.mesh_inp_size, n_latent=args.nlatent, res=False, non=True, n_cams=n_cams).to(device)
     elif args.arch == 'bilinear':
@@ -167,6 +167,25 @@ def main(args, camera_config, test_segment):
 
         return losses, output
 
+    # apply gamma correction on output images
+    def gammaCorrect(img, dim=-1):
+
+        if dim == -1:
+            dim = len(img.shape) - 1 
+        assert(img.shape[dim] == 3)
+        gamma, black, color_scale = 2.0,  3.0 / 255.0, [1.4, 1.1, 1.6]
+
+        if torch.is_tensor(img):
+            scale = torch.FloatTensor(color_scale).view([3 if i == dim else 1 for i in range(img.dim())])
+            img = img * scale.to(img) / 1.1
+            correct_img = torch.clamp((((1.0 / (1 - black)) * 0.95 * torch.clamp(img - black, 0, 2)) ** (1.0 / gamma)) - 15.0 / 255.0, 0, 2,)
+        else:
+            scale = np.array(color_scale).reshape([3 if i == dim else 1 for i in range(img.ndim)])
+            img = img * scale / 1.1
+            correct_img = np.clip((((1.0 / (1 - black)) * 0.95 * np.clip(img - black, 0, 2)) ** (1.0 / gamma)) - 15.0 / 255.0, 0, 2, )
+        
+        return correct_img
+
     def save_img(data, output, i, key, tag=''):
         screen_mask = data['screen_mask'][i].detach().cpu()
         gt_screen = data['photo'][i] * 255
@@ -174,12 +193,18 @@ def main(args, camera_config, test_segment):
         #pred_tex = torch.clamp(output['pred_tex'][i] * 255, 0, 255)
         if output['pred_screen'][i] is not None:
             pred_screen = torch.clamp(output['pred_screen'][i] * 255, 0, 255)
-            Image.fromarray(pred_screen.detach().cpu().numpy().astype(np.uint8)).save(os.path.join(args.result_path, 'pred_%s.png' % tag))
-        Image.fromarray(gt_screen.detach().cpu().numpy().astype(np.uint8)).save(os.path.join(args.result_path, 'gt_%s.png' % tag))
+            # apply gamma correction
+            save_pred_image = pred_screen.detach().cpu().numpy().astype(np.uint8) 
+            save_pred_image = (255 * gammaCorrect(save_pred_image / 255.0)).astype(np.uint8)
+            Image.fromarray(save_pred_image).save(os.path.join(args.result_path, 'pred_%s.png' % tag))
+        # apply gamma correction
+        save_gt_image = gt_screen.detach().cpu().numpy().astype(np.uint8)
+        save_gt_image = (255 * gammaCorrect(save_gt_image / 255.0)).astype(np.uint8)
+        Image.fromarray(save_gt_image).save(os.path.join(args.result_path, 'gt_%s.png' % tag))
         #Image.fromarray(gt_tex[-1].detach().permute((1, 2, 0)).cpu().numpy().astype(np.uint8)).save(os.path.join(args.result_path, 'gt_tex_%s.png' % tag))
         #Image.fromarray(pred_tex.detach().permute((1, 2, 0)).cpu().numpy().astype(np.uint8)).save(os.path.join(args.result_path, 'pred_tex_%s.png' % tag))
 
-        # compute difference
+        # compute difference (no need to apply gamma correction on diff image)
         diff_img = abs(pred_screen.detach().cpu().numpy() - (gt_screen * screen_mask).detach().cpu().numpy()).astype(np.uint8)
         diff_img  = cv2.normalize(diff_img, diff_img, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX, dtype=cv2.CV_8U)
         diff_img = cv2.applyColorMap(np.uint8(255 * (255 - diff_img)), cv2.COLORMAP_JET)[:, :, ::-1]
