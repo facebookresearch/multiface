@@ -15,7 +15,7 @@ import torch.optim as optim
 from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
 from models import WarpFieldVAE, DeepAppearanceVAE
-from utils import Renderer
+from utils import Renderer, gammaCorrect
 import cv2
 import numpy as np
 import os
@@ -167,24 +167,6 @@ def main(args, camera_config, test_segment):
 
         return losses, output
 
-    # apply gamma correction on output images
-    def gammaCorrect(img, dim=-1):
-
-        if dim == -1:
-            dim = len(img.shape) - 1 
-        assert(img.shape[dim] == 3)
-        gamma, black, color_scale = 2.0,  3.0 / 255.0, [1.4, 1.1, 1.6]
-
-        if torch.is_tensor(img):
-            scale = torch.FloatTensor(color_scale).view([3 if i == dim else 1 for i in range(img.dim())])
-            img = img * scale.to(img) / 1.1
-            correct_img = torch.clamp((((1.0 / (1 - black)) * 0.95 * torch.clamp(img - black, 0, 2)) ** (1.0 / gamma)) - 15.0 / 255.0, 0, 2,)
-        else:
-            scale = np.array(color_scale).reshape([3 if i == dim else 1 for i in range(img.ndim)])
-            img = img * scale / 1.1
-            correct_img = np.clip((((1.0 / (1 - black)) * 0.95 * np.clip(img - black, 0, 2)) ** (1.0 / gamma)) - 15.0 / 255.0, 0, 2, )
-        
-        return correct_img
 
     def save_img(data, output, i, key, tag=''):
         screen_mask = data['screen_mask'][i].detach().cpu()
