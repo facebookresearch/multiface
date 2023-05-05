@@ -43,7 +43,7 @@ The `download_config` argument points to the configuration file specifying asset
 | mesh       | boolean        | Tracked mesh of entities selected will be downloaded |
 | texture    | boolean        | Unwrapped texture of entities selected will be downloaded |
 | metadata   | boolean        | Metadata of entities selected will be downloaded |
-| audio      | boolean        | Audio of entities selected will be downloaded |
+| audio      | boolean        | Audio of entities selected will be downloaded. The first available frame is aligned with the start of the audio file, however, missing frames in images need to be handled for alignment |
 | expression  |list of string | All the facial expression (contains both v1 and v2 scripts) will be downloaded  |
 
 The configuration to download all assets can be found at `download_config.json`. 
