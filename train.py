@@ -13,6 +13,7 @@ import argparse
 import json
 import os
 import time
+import glob
 
 import cv2
 import numpy as np
@@ -24,7 +25,7 @@ from dataset import Dataset
 from models import DeepAppearanceVAE, WarpFieldVAE
 from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
-from utils import Renderer
+from utils import Renderer, gammaCorrect
 
 
 def main(args, camera_config, test_segment):
@@ -85,7 +86,7 @@ def main(args, camera_config, test_segment):
         ).to(device)
     elif args.arch == "warp":
         model = WarpFieldVAE(
-            args.tex_size, args.mesh_inp_size, z_dim=args.nlatent, n_cams=n_cams
+            args.tex_size, args.mesh_inp_size, z_dim=args.nlatent, n_cameras=n_cams
         ).to(device)
     elif args.arch == "non":
         model = DeepAppearanceVAE(
@@ -175,8 +176,8 @@ def main(args, camera_config, test_segment):
         gt_tex = (gt_tex * texstd + texmean) / 255.0
 
         loss_mask = loss_weight_mask.repeat(batch, 1, 1, 1)
-        tex_loss = mse(pred_tex * mask, gt_tex * mask) * (255**2) / (texstd**2)
 
+        tex_loss = mse(pred_tex * mask, gt_tex * mask) * (255**2) / (texstd**2)
         if args.lambda_screen > 0:
             screen_mask, rast_out = renderer.render(
                 M, pred_verts, vert_ids, uvs, uv_ids, loss_mask, args.resolution
@@ -207,6 +208,7 @@ def main(args, camera_config, test_segment):
             "vert_loss": vert_loss,
             "screen_loss": screen_loss,
             "tex_loss": tex_loss,
+            "denorm_tex_loss": tex_loss * (texstd**2),
             "kl": kl,
         }
 
@@ -222,21 +224,26 @@ def main(args, camera_config, test_segment):
         pred_tex = torch.clamp(output["pred_tex"] * 255, 0, 255)
         if output["pred_screen"] is not None:
             pred_screen = torch.clamp(output["pred_screen"] * 255, 0, 255)
-            Image.fromarray(
-                pred_screen[-1].detach().cpu().numpy().astype(np.uint8)
-            ).save(os.path.join(args.result_path, "pred_%s.png" % tag))
-        Image.fromarray(gt_screen[-1].detach().cpu().numpy().astype(np.uint8)).save(
-            os.path.join(args.result_path, "gt_%s.png" % tag)
-        )
-        Image.fromarray(
-            gt_tex[-1].detach().permute((1, 2, 0)).cpu().numpy().astype(np.uint8)
-        ).save(os.path.join(args.result_path, "gt_tex_%s.png" % tag))
-        Image.fromarray(
-            pred_tex[-1].detach().permute((1, 2, 0)).cpu().numpy().astype(np.uint8)
-        ).save(os.path.join(args.result_path, "pred_tex_%s.png" % tag))
+            # apply gamma correction
+            save_pred_image = pred_screen.detach().cpu().numpy().astype(np.uint8) 
+            save_pred_image = (255 * gammaCorrect(save_pred_image / 255.0)).astype(np.uint8)
+            Image.fromarray(save_pred_image).save(os.path.join(args.result_path, "pred_%s.png" % tag))
+        # apply gamma correction
+        save_gt_image = gt_screen[-1].detach().cpu().numpy().astype(np.uint8)
+        save_gt_image = (255 * gammaCorrect(save_gt_image / 255.0)).astype(np.uint8)
+        Image.fromarray(save_gt_image).save(os.path.join(args.result_path, "gt_%s.png" % tag))
+        # apply gamma correction
+        save_gt_tex_image = gt_tex[-1].detach().permute((1, 2, 0)).cpu().numpy().astype(np.uint8)
+        save_gt_tex_image = (255 * gammaCorrect(save_gt_tex_image / 255.0)).astype(np.uint8)
+        Image.fromarray(save_gt_tex_image).save(os.path.join(args.result_path, "gt_tex_%s.png" % tag))
+        # apply gamma correction
+        save_pred_tex_image = pred_tex[-1].detach().permute((1, 2, 0)).cpu().numpy().astype(np.uint8)
+        save_pred_tex_image = (255 * gammaCorrect(save_pred_tex_image / 255.0)).astype(np.uint8)
+        Image.fromarray(save_pred_tex_image).save(os.path.join(args.result_path, "pred_tex_%s.png" % tag))
 
         if args.arch == "warp":
             warp = output["warp_field"]
+            '''
             grid_img = (
                 torch.tensor(
                     np.array(
@@ -251,7 +258,7 @@ def main(args, camera_config, test_segment):
             Image.fromarray(
                 grid_img[-1].detach().permute((1, 2, 0)).cpu().numpy().astype(np.uint8)
             ).save(os.path.join(args.result_path, "warp_grid_%s.png" % tag))
-
+            '''
     prev_loss = 1e8
     prev_vert_loss = 1e8
     prev_kl = 1e8
@@ -289,10 +296,10 @@ def main(args, camera_config, test_segment):
                 continue
 
             if local_rank == 0:
-                writer.add_scalar('train/loss_tex',losses['tex_loss'].item(), batch_idx)
-                writer.add_scalar('train/loss_verts', losses['vert_loss'].item(), batch_idx)
-                writer.add_scalar('train/loss_screen', losses['screen_loss'].item(), batch_idx)
-                writer.add_scalar('train/loss_kl', losses['kl'].item(), batch_idx)
+               writer.add_scalar('train/loss_tex',losses['tex_loss'].item(), batch_idx)
+               writer.add_scalar('train/loss_verts', losses['vert_loss'].item(), batch_idx)
+               writer.add_scalar('train/loss_screen', losses['screen_loss'].item(), batch_idx)
+               writer.add_scalar('train/loss_kl', losses['kl'].item(), batch_idx)
 
             prev_loss = losses["total_loss"].item()
             prev_vert_loss = losses["vert_loss"].item()
@@ -355,11 +362,11 @@ def main(args, camera_config, test_segment):
                 screen_loss = np.array(screen).mean()
                 kl = np.array(kl).mean()
                 if local_rank == 0:
-                    writer.add_scalar('val/loss_tex',tex_loss, val_idx)
-                    writer.add_scalar('val/loss_verts', vert_loss, val_idx)
-                    writer.add_scalar('val/loss_screen', screen_loss, val_idx)
-                    writer.add_scalar('val/loss_kl', kl, val_idx)
-                    save_img(data, output, "val_%d" % val_idx)
+                   writer.add_scalar('val/loss_tex',tex_loss, val_idx)
+                   writer.add_scalar('val/loss_verts', vert_loss, val_idx)
+                   writer.add_scalar('val/loss_screen', screen_loss, val_idx)
+                   writer.add_scalar('val/loss_kl', kl, val_idx)
+                   save_img(data, output, "val_%d" % val_idx)
 
                 val_idx += 1
                 print(
@@ -548,33 +555,40 @@ if __name__ == "__main__":
         help="Directory to output files",
     )
     parser.add_argument(
-        "--camera_config",
-        type=str,
-        default=None,
-        help="Directory to camera set config file",
-    )
-    parser.add_argument(
-        "--camera_setting",
-        type=str,
-        default=None,
-        help="Key of camera setting to camera config file",
-    )
-    parser.add_argument(
         "--model_ckpt", type=str, default=None, help="Model checkpoint path"
     )
     experiment_args = parser.parse_args()
     print(experiment_args)
 
-    if experiment_args.camera_config is not None:
-        f = open(experiment_args.camera_config, "r")
+    # load camera config
+    subject_id = experiment_args.data_dir.split("--")[-2]
+    camera_config_path = f"camera_configs/camera-split-config_{subject_id}.json"
+    if os.path.exists(camera_config_path):
+        print(f"camera config file for {subject_id} exists, loading...")
+        f = open(camera_config_path, "r")
         camera_config = json.load(f)
         f.close()
-        if experiment_args.camera_setting is not None:
-            camera_set = camera_config[experiment_args.camera_setting]
-        else:
-            camera_set = None
     else:
-        camera_set = None
+        print(f"camera config file for {subject_id} NOT exists, generating...")
+        # generate camera config based on downloaded data if not existed
+        segments = [os.path.basename(x) for x in glob.glob(f"{experiment_args.data_dir}/unwrapped_uv_1024/*")]
+        assert len(segments) > 0
+        # select a segment to check available camera ids
+        camera_ids = [os.path.basename(x) for x in glob.glob(f"{experiment_args.data_dir}/unwrapped_uv_1024/{segments[0]}/*")]
+        camera_ids.remove('average')
+        camera_config = {
+            "full": {
+                "train": camera_ids,
+                "test": camera_ids,
+                "visual": camera_ids[:2]
+            }
+        }    
+        # save the config for future use
+        os.makedirs("camera_configs", exist_ok=True)
+        with open(camera_config_path, 'w') as f:
+            json.dump(camera_config, f)
+
+    camera_set = camera_config["full"]
 
     if experiment_args.test_segment_config is not None:
         f = open(experiment_args.test_segment_config, "r")

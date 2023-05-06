@@ -25,7 +25,7 @@ from dataset import Dataset
 from models import DeepAppearanceVAE, WarpFieldVAE
 from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
-from utils import Renderer
+from utils import Renderer, gammaCorrect
 
 
 def main(args, camera_config, test_segment):
@@ -79,7 +79,7 @@ def main(args, camera_config, test_segment):
         ).to(device)
     elif args.arch == "warp":
         model = WarpFieldVAE(
-            args.tex_size, args.mesh_inp_size, z_dim=args.nlatent, n_cams=n_cams
+            args.tex_size, args.mesh_inp_size, z_dim=args.nlatent, n_cameras=n_cams
         ).to(device)
     elif args.arch == "non":
         model = DeepAppearanceVAE(
@@ -223,21 +223,26 @@ def main(args, camera_config, test_segment):
         pred_tex = torch.clamp(output["pred_tex"] * 255, 0, 255)
         if output["pred_screen"] is not None:
             pred_screen = torch.clamp(output["pred_screen"] * 255, 0, 255)
-            Image.fromarray(
-                pred_screen[-1].detach().cpu().numpy().astype(np.uint8)
-            ).save(os.path.join(args.result_path, "pred_%s.png" % tag))
-        Image.fromarray(gt_screen[-1].detach().cpu().numpy().astype(np.uint8)).save(
-            os.path.join(args.result_path, "gt_%s.png" % tag)
-        )
-        Image.fromarray(
-            gt_tex[-1].detach().permute((1, 2, 0)).cpu().numpy().astype(np.uint8)
-        ).save(os.path.join(args.result_path, "gt_tex_%s.png" % tag))
-        Image.fromarray(
-            pred_tex[-1].detach().permute((1, 2, 0)).cpu().numpy().astype(np.uint8)
-        ).save(os.path.join(args.result_path, "pred_tex_%s.png" % tag))
+            # apply gamma correction
+            save_pred_image = pred_screen[-1].detach().cpu().numpy().astype(np.uint8)
+            save_pred_image = (255 * gammaCorrect(save_pred_image / 255.0)).astype(np.uint8)
+            Image.fromarray(save_pred_image).save(os.path.join(args.result_path, "pred_%s.png" % tag))
+        # apply gamma correction
+        save_gt_image = gt_screen[-1].detach().cpu().numpy().astype(np.uint8)
+        save_gt_image = (255 * gammaCorrect(save_gt_image / 255.0)).astype(np.uint8)
+        Image.fromarray(save_gt_image).save(os.path.join(args.result_path, "gt_%s.png" % tag))
+        # apply gamma correction
+        save_gt_tex_image = gt_tex[-1].detach().permute((1, 2, 0)).cpu().numpy().astype(np.uint8)
+        save_gt_tex_image = (255 * gammaCorrect(save_gt_tex_image / 255.0)).astype(np.uint8)
+        Image.fromarray(save_gt_tex_image).save(os.path.join(args.result_path, "gt_tex_%s.png" % tag))
+        # apply gamma correction
+        save_pred_tex_image = pred_tex[-1].detach().permute((1, 2, 0)).cpu().numpy().astype(np.uint8)
+        save_pred_tex_image = (255 * gammaCorrect(save_pred_tex_image / 255.0)).astype(np.uint8)
+        Image.fromarray(save_pred_tex_image).save(os.path.join(args.result_path, "pred_tex_%s.png" % tag))
 
         if args.arch == "warp":
             warp = output["warp_field"]
+            '''
             grid_img = (
                 torch.tensor(
                     np.array(
@@ -252,6 +257,7 @@ def main(args, camera_config, test_segment):
             Image.fromarray(
                 grid_img[-1].detach().permute((1, 2, 0)).cpu().numpy().astype(np.uint8)
             ).save(os.path.join(args.result_path, "warp_grid_%s.png" % tag))
+            '''
 
     val_idx = 0
     best_screen_loss = 1e8
