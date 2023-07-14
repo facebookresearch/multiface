@@ -79,7 +79,7 @@ def main(args, camera_config, test_segment):
         ).to(device)
     elif args.arch == "warp":
         model = WarpFieldVAE(
-            args.tex_size, args.mesh_inp_size, z_dim=args.nlatent, n_cameras=n_cams
+            args.tex_size, args.mesh_inp_size, z_dim=args.nlatent, n_cams=n_cams
         ).to(device)
     elif args.arch == "non":
         model = DeepAppearanceVAE(
@@ -208,6 +208,7 @@ def main(args, camera_config, test_segment):
             "vert_loss": vert_loss,
             "screen_loss": screen_loss,
             "tex_loss": tex_loss,
+            "denorm_tex_loss": tex_loss * (texstd**2),
             "kl": kl,
         }
 
@@ -242,7 +243,6 @@ def main(args, camera_config, test_segment):
 
         if args.arch == "warp":
             warp = output["warp_field"]
-            '''
             grid_img = (
                 torch.tensor(
                     np.array(
@@ -257,7 +257,6 @@ def main(args, camera_config, test_segment):
             Image.fromarray(
                 grid_img[-1].detach().permute((1, 2, 0)).cpu().numpy().astype(np.uint8)
             ).save(os.path.join(args.result_path, "warp_grid_%s.png" % tag))
-            '''
 
     val_idx = 0
     best_screen_loss = 1e8
@@ -277,7 +276,7 @@ def main(args, camera_config, test_segment):
             optimizer_enc.zero_grad()
             total.append(losses["total_loss"].item())
             vert.append(losses["vert_loss"].item())
-            tex.append(losses["tex_loss"].item())
+            tex.append(losses["denorm_tex_loss"].item()) # denormalized 
             screen.append(losses["screen_loss"].item())
             kl.append(losses["kl"].item())
             losses["total_loss"].backward()
@@ -430,32 +429,39 @@ if __name__ == "__main__":
         default="./runs/experiment",
         help="Directory to output files",
     )
-    parser.add_argument(
-        "--camera_config",
-        type=str,
-        default=None,
-        help="Directory to camera set config file",
-    )
-    parser.add_argument(
-        "--camera_setting",
-        type=str,
-        default=None,
-        help="Key of camera setting to camera config file",
-    )
     parser.add_argument("--model_path", type=str, default=None, help="Model path")
     experiment_args = parser.parse_args()
     print(experiment_args)
 
-    if experiment_args.camera_config is not None:
-        f = open(experiment_args.camera_config, "r")
+    # load camera config
+    subject_id = experiment_args.data_dir.split("--")[-2]
+    camera_config_path = f"camera_configs/camera-split-config_{subject_id}.json"
+    if os.path.exists(camera_config_path):
+        print(f"camera config file for {subject_id} exists, loading...")
+        f = open(camera_config_path, "r")
         camera_config = json.load(f)
         f.close()
-        if experiment_args.camera_setting is not None:
-            camera_set = camera_config[experiment_args.camera_setting]
-        else:
-            camera_set = None
     else:
-        camera_set = None
+        print(f"camera config file for {subject_id} NOT exists, generating...")
+        # generate camera config based on downloaded data if not existed
+        segments = [os.path.basename(x) for x in glob.glob(f"{experiment_args.data_dir}/unwrapped_uv_1024/*")]
+        assert len(segments) > 0
+        # select a segment to check available camera ids
+        camera_ids = [os.path.basename(x) for x in glob.glob(f"{experiment_args.data_dir}/unwrapped_uv_1024/{segments[0]}/*")]
+        camera_ids.remove('average')
+        camera_config = {
+            "full": {
+                "train": camera_ids,
+                "test": camera_ids,
+                "visual": camera_ids[:2]
+            }
+        }    
+        # save the config for future use
+        os.makedirs("camera_configs", exist_ok=True)
+        with open(camera_config_path, 'w') as f:
+            json.dump(camera_config, f)
+
+    camera_set = camera_config["full"]
 
     if experiment_args.test_segment_config is not None:
         f = open(experiment_args.test_segment_config, "r")
