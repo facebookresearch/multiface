@@ -11,6 +11,7 @@ Multiface Dataset and the [Technical Report]() is authored by
 - Lucas Evans 
 - Timothy Godisart
 - Hyowon Ha
+- Xuhua Huang
 - Ginés Hidalgo
 - Alexander Hypes
 - Taylor Koska
@@ -34,4 +35,4 @@ Multiface Dataset and the [Technical Report]() is authored by
 - Shoou-I Yu
 - Yaser Sheikh 
 
-*Cheng-hsin Wuu and Ningyuan Zheng are the main authors and will be maintaining the dataset.
+*Cheng-hsin Wuu and Ningyuan Zheng are the main authors, Xuhua Huang will also help maintain this repo and the dataset.

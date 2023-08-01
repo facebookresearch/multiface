@@ -86,7 +86,7 @@ def main(args, camera_config, test_segment):
         ).to(device)
     elif args.arch == "warp":
         model = WarpFieldVAE(
-            args.tex_size, args.mesh_inp_size, z_dim=args.nlatent, n_cameras=n_cams
+            args.tex_size, args.mesh_inp_size, z_dim=args.nlatent, n_cams=n_cams
         ).to(device)
     elif args.arch == "non":
         model = DeepAppearanceVAE(
@@ -243,7 +243,6 @@ def main(args, camera_config, test_segment):
 
         if args.arch == "warp":
             warp = output["warp_field"]
-            '''
             grid_img = (
                 torch.tensor(
                     np.array(
@@ -258,7 +257,6 @@ def main(args, camera_config, test_segment):
             Image.fromarray(
                 grid_img[-1].detach().permute((1, 2, 0)).cpu().numpy().astype(np.uint8)
             ).save(os.path.join(args.result_path, "warp_grid_%s.png" % tag))
-            '''
     prev_loss = 1e8
     prev_vert_loss = 1e8
     prev_kl = 1e8
@@ -362,11 +360,11 @@ def main(args, camera_config, test_segment):
                 screen_loss = np.array(screen).mean()
                 kl = np.array(kl).mean()
                 if local_rank == 0:
-                   writer.add_scalar('val/loss_tex',tex_loss, val_idx)
-                   writer.add_scalar('val/loss_verts', vert_loss, val_idx)
-                   writer.add_scalar('val/loss_screen', screen_loss, val_idx)
-                   writer.add_scalar('val/loss_kl', kl, val_idx)
-                   save_img(data, output, "val_%d" % val_idx)
+                    writer.add_scalar('val/loss_tex',tex_loss, val_idx)
+                    writer.add_scalar('val/loss_verts', vert_loss, val_idx)
+                    writer.add_scalar('val/loss_screen', screen_loss, val_idx)
+                    writer.add_scalar('val/loss_kl', kl, val_idx)
+                    save_img(data, output, "val_%d" % val_idx)
 
                 val_idx += 1
                 print(

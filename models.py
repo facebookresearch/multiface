@@ -15,16 +15,15 @@ import torch.nn.functional as F
 
 class WarpFieldVAE(nn.Module):
     def __init__(
-        self, tex_size=1024, mesh_inp_size=21918, mode="vae", n_cameras=38, z_dim=128
+        self, tex_size=1024, mesh_inp_size=21918, mode="vae", n_cams=38, z_dim=128
     ):
         super(WarpFieldVAE, self).__init__()
         z_dim = z_dim if mode == "vae" else z_dim * 2
-        grid = 64 if tex_size == 512 else 128
         self.mode = mode
-        self.cc = ColorCorrection(n_cameras)
+        self.cc = ColorCorrection(n_cams)
         self.enc = DeepApperanceEncoder(tex_size, mesh_inp_size, n_latent=z_dim)
         self.dec = DeepAppearanceDecoder(tex_size, mesh_inp_size, z_dim=z_dim)
-        self.warp = WarpFieldDecoder(grid_size=grid, z_dim=z_dim)
+        self.warp = WarpFieldDecoder(tex_size=tex_size, z_dim=z_dim)
 
     def forward(self, avgtex, mesh, view, cams=None):
         b, n, _ = mesh.shape
@@ -129,9 +128,8 @@ class DeepAppearanceVAE(nn.Module):
         return self.cc.parameters()
 
 
-# adapted from: https://github.com/zhixinshu/DeformingAutoencoders-pytorch
 class WarpFieldDecoder(nn.Module):
-    def __init__(self, grid_size=64, z_dim=128, var=0.032):
+    def __init__(self, tex_size=1024, z_dim=128):
         super(WarpFieldDecoder, self).__init__()
         self.mlp = nn.Sequential(
             LinearWN(z_dim, 256),
@@ -139,66 +137,37 @@ class WarpFieldDecoder(nn.Module):
             LinearWN(256, 1024),
             nn.LeakyReLU(0.2, inplace=True),
         )
-        if grid_size == 64:
-            self.upsample = nn.Sequential(
-                ConvUpsample(256, 128, 64, 2),
-                ConvUpsample(64, 32, 32, 2 * (2**2)),
-                ConvTranspose2dWN(32, 2, 4, 2, 1),
-            )
-            self.apply(lambda x: glorot(x, 0.2))
-            glorot(self.upsample[-1], 1.0)
-        elif grid_size == 128:
-            self.upsample = nn.Sequential(
-                ConvUpsample(256, 128, 64, 2),
-                ConvUpsample(64, 64, 32, 2 * (2**2)),
-                ConvUpsample(32, 32, 16, 2 * (2**4), no_activ=True),
-            )
-            self.apply(lambda x: glorot(x, 0.2))
-            glorot(self.upsample[-1].conv2, 1.0)
-        self.grid_size = grid_size
-        self.var = var
-        self.sigmoid = nn.Sigmoid()
-        self.hardtanh = nn.Hardtanh()
-        self.filterx = torch.ones(
-            (1, 1, 1, grid_size), dtype=torch.float32, requires_grad=False
+
+        self.upsample = nn.Sequential(
+            ConvUpsample(256, 128, 128, 2),
+            ConvUpsample(128, 128, 64, 2 * (2**2)),
+            ConvUpsample(64, 64, 32, 2 * (2**4)),
+            ConvUpsample(32, 32, 16, 2 * (2**6)),
+            nn.Upsample(size=tex_size, mode='bilinear'),
+            nn.Conv2d(16, 2, 3, 1, 1),
         )
-        self.filtery = torch.ones(
-            (1, 1, grid_size, 1), dtype=torch.float32, requires_grad=False
-        )
+
+        self.apply(lambda x: glorot(x, 0.2))
+        glorot(self.upsample[-1], 1.0)
+
+        self.tex_size = tex_size
+
+        xgrid, ygrid = np.meshgrid(np.linspace(-1.0, 1.0, tex_size), np.linspace(-1.0, 1.0, tex_size))
+        grid = np.concatenate((xgrid[None, :, :], ygrid[None, :, :]), axis=0)[None, ...].astype(np.float32)
+        self.register_buffer("normal_grid", torch.from_numpy(grid))
 
     def forward(self, z, img):
-        g = self.grid_size
         b, c, h, w = img.shape
 
-        # a = torch.arange(1 - g, g, 2, dtype=torch.float32) / (g - 1)
-        # x = a.repeat(g, 1)
-        # y = x.t()
-        # id_grid = torch.cat((x.unsqueeze(0), y.unsqueeze(0)), 0)
-        # id_grid = id_grid.unsqueeze(0).repeat(b, 1, 1, 1).to(z.device)
-
         feat = self.mlp(z).view((-1, 256, 2, 2))
-        grid = self.sigmoid(self.upsample(feat))
-        fullx = F.conv_transpose2d(
-            grid[:, 0, :, :].unsqueeze(1),
-            self.filterx.to(grid.device),
-            stride=1,
-            padding=0,
-        )
-        fully = F.conv_transpose2d(
-            grid[:, 1, :, :].unsqueeze(1),
-            self.filtery.to(grid.device),
-            stride=1,
-            padding=0,
-        )
-        int_grid = torch.cat((fullx[:, :, 0:g, 0:g], fully[:, :, 0:g, 0:g]), 1)
-        int_grid = int_grid - torch.mean(int_grid, (2, 3), keepdim=True)
-        # max_x = torch.max(int_grid[:, 0, :, :].view(b, -1), -1).values.view(b, 1, 1, 1)
-        # max_y = torch.max(int_grid[:, 1, :, :].view(b, -1), -1).values.view(b, 1, 1, 1)
-        # int_grid = torch.cat((int_grid[:, 0:1, :, :] / max_x, int_grid[:, 1:, :, :] / max_y), 1)
-        warp = self.hardtanh(int_grid * self.var)
-        warp_img = F.interpolate(warp, h, mode="bilinear").permute(0, 2, 3, 1)
-        out = F.grid_sample(img, warp_img)
-        return out, warp_img
+        warp = self.upsample(feat) / self.tex_size
+        grid = warp + self.normal_grid
+        if grid.shape[2] < img.shape[2]:
+            grid = F.interpolate(grid, scale_factor=img.shape[2] / grid.shape[2])
+        grid = grid.permute(0, 2, 3, 1).contiguous()
+
+        out = F.grid_sample(img, grid)
+        return out, grid
 
 
 class DeepAppearanceDecoder(nn.Module):
